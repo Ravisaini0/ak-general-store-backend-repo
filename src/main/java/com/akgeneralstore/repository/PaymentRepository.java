@@ -1,0 +1,13 @@
+package com.akgeneralstore.repository;
+
+import com.akgeneralstore.entity.Payment;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+import java.util.List;
+import java.util.Optional;
+
+public interface PaymentRepository extends JpaRepository<Payment, Long> {
+    Optional<Payment> findByOrderId(Long orderId);
+    Optional<Payment> findByProviderOrderId(String providerOrderId);
+    List<Payment> findByCollectedByDeliveryBoyId(Long deliveryBoyId);
+}

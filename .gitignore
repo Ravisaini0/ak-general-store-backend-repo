@@ -1,0 +1,13 @@
+target/
+bin/
+uploads/
+.settings/
+.classpath
+.project
+.factorypath
+backend-run.args
+.env
+.env.*
+!.env.example
+!.env.prod.example
+*.log
