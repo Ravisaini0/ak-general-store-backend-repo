@@ -25,6 +25,8 @@ public class User {
 
     private String phone;
 
+    private String avatarUrl;
+
     private boolean emailVerified;
 
     @Column(nullable = false)

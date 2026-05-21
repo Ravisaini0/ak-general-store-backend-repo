@@ -18,6 +18,7 @@ public class AuthResponse {
     private String name;
     private String email;
     private String phone;
+    private String avatar;
     private boolean emailVerified;
     private boolean blocked;
 }

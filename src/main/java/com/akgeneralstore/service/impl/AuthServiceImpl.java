@@ -1,6 +1,7 @@
 package com.akgeneralstore.service.impl;
 
 import com.akgeneralstore.config.OtpDeliveryProperties;
+import com.akgeneralstore.config.ProductUploadProperties;
 import com.akgeneralstore.dto.request.ForgotPasswordRequest;
 import com.akgeneralstore.dto.request.LoginRequest;
 import com.akgeneralstore.dto.request.OtpRequest;
@@ -12,24 +13,38 @@ import com.akgeneralstore.dto.response.ForgotPasswordResponse;
 import com.akgeneralstore.dto.response.MessageResponse;
 import com.akgeneralstore.dto.response.OtpResponse;
 import com.akgeneralstore.dto.response.OtpVerifyResponse;
+import com.akgeneralstore.dto.response.ProductImageUploadResponse;
 import com.akgeneralstore.entity.OtpVerification;
 import com.akgeneralstore.entity.User;
 import com.akgeneralstore.exception.BadRequestException;
+import com.akgeneralstore.exception.ResourceNotFoundException;
 import com.akgeneralstore.exception.UnauthorizedException;
 import com.akgeneralstore.repository.OtpVerificationRepository;
 import com.akgeneralstore.repository.UserRepository;
 import com.akgeneralstore.security.JwtService;
 import com.akgeneralstore.service.AuthService;
 import com.akgeneralstore.service.OtpDeliveryService;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
+import javax.imageio.ImageIO;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.time.LocalDateTime;
+import java.text.Normalizer;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
 
 @Service
 public class AuthServiceImpl implements AuthService {
+    private static final Path AVATAR_UPLOAD_DIRECTORY = Paths.get("uploads", "avatars");
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
@@ -37,6 +52,7 @@ public class AuthServiceImpl implements AuthService {
     private final OtpVerificationRepository otpVerificationRepository;
     private final OtpDeliveryService otpDeliveryService;
     private final OtpDeliveryProperties otpDeliveryProperties;
+    private final ProductUploadProperties productUploadProperties;
 
     public AuthServiceImpl(
             UserRepository userRepository,
@@ -44,7 +60,8 @@ public class AuthServiceImpl implements AuthService {
             JwtService jwtService,
             OtpVerificationRepository otpVerificationRepository,
             OtpDeliveryService otpDeliveryService,
-            OtpDeliveryProperties otpDeliveryProperties
+            OtpDeliveryProperties otpDeliveryProperties,
+            ProductUploadProperties productUploadProperties
     ) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
@@ -52,6 +69,7 @@ public class AuthServiceImpl implements AuthService {
         this.otpVerificationRepository = otpVerificationRepository;
         this.otpDeliveryService = otpDeliveryService;
         this.otpDeliveryProperties = otpDeliveryProperties;
+        this.productUploadProperties = productUploadProperties;
     }
 
     @Override
@@ -295,6 +313,39 @@ public class AuthServiceImpl implements AuthService {
         return new MessageResponse("Password reset successful.");
     }
 
+    @Override
+    public ProductImageUploadResponse uploadProfileAvatar(Long userId, MultipartFile file) {
+        if (userId == null || userId <= 0) {
+            throw new UnauthorizedException("You must be logged in to update your profile image.");
+        }
+
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User account not found."));
+
+        String existingAvatarUrl = user.getAvatarUrl();
+        String avatarUrl = uploadValidatedAvatar(file);
+        user.setAvatarUrl(avatarUrl);
+        userRepository.save(user);
+        deleteAvatarIfManaged(existingAvatarUrl);
+        return new ProductImageUploadResponse(avatarUrl);
+    }
+
+    @Override
+    public MessageResponse removeProfileAvatar(Long userId) {
+        if (userId == null || userId <= 0) {
+            throw new UnauthorizedException("You must be logged in to update your profile image.");
+        }
+
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User account not found."));
+
+        String existingAvatarUrl = user.getAvatarUrl();
+        user.setAvatarUrl(null);
+        userRepository.save(user);
+        deleteAvatarIfManaged(existingAvatarUrl);
+        return new MessageResponse("Profile image removed.");
+    }
+
     private Optional<User> findUserByLoginValue(String loginValue) {
         if (loginValue.contains("@")) {
             return userRepository.findByEmail(loginValue.toLowerCase());
@@ -358,6 +409,97 @@ public class AuthServiceImpl implements AuthService {
 
         return "******" + identifier.substring(identifier.length() - 4);
     }
+
+    private String uploadValidatedAvatar(MultipartFile file) {
+        if (file == null || file.isEmpty()) {
+            throw new BadRequestException("Please select an image file to upload.");
+        }
+
+        if (file.getSize() > productUploadProperties.getMaxBytes()) {
+            throw new BadRequestException("Image size is too large. Please upload a smaller file.");
+        }
+
+        String contentType = normalizeContentType(file.getContentType());
+        if (!productUploadProperties.getAllowedContentTypes().contains(contentType)) {
+            throw new BadRequestException("Only JPG, PNG, or WEBP images are allowed.");
+        }
+
+        String originalName = sanitizeOriginalName(file.getOriginalFilename());
+        String extension = resolveExtension(originalName);
+        if (!productUploadProperties.getAllowedExtensions().contains(extension)) {
+            throw new BadRequestException("Unsupported image extension. Allowed: JPG, PNG, WEBP.");
+        }
+
+        try {
+            byte[] fileBytes = file.getBytes();
+            BufferedImage bufferedImage = ImageIO.read(new ByteArrayInputStream(fileBytes));
+            if (bufferedImage == null || bufferedImage.getWidth() <= 0 || bufferedImage.getHeight() <= 0) {
+                throw new BadRequestException("Invalid image file uploaded.");
+            }
+
+            String fileName = UUID.randomUUID() + extension;
+            Files.createDirectories(AVATAR_UPLOAD_DIRECTORY);
+            Path targetPath = AVATAR_UPLOAD_DIRECTORY.resolve(fileName).normalize();
+
+            if (!targetPath.startsWith(AVATAR_UPLOAD_DIRECTORY.normalize())) {
+                throw new BadRequestException("Invalid upload target path.");
+            }
+
+            Files.copy(new ByteArrayInputStream(fileBytes), targetPath, StandardCopyOption.REPLACE_EXISTING);
+            return "/uploads/avatars/" + fileName;
+        } catch (BadRequestException exception) {
+            throw exception;
+        } catch (IOException exception) {
+            throw new BadRequestException("Profile image could not be uploaded.");
+        }
+    }
+
+    private String normalizeContentType(String contentType) {
+        return contentType == null ? "" : contentType.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private String sanitizeOriginalName(String originalName) {
+        String fallbackName = originalName == null || originalName.isBlank() ? "profile-image.jpg" : originalName;
+        String normalized = Normalizer.normalize(fallbackName, Normalizer.Form.NFKC)
+                .replace("\\", "")
+                .replace("/", "")
+                .trim();
+
+        if (normalized.isBlank()) {
+            return "profile-image.jpg";
+        }
+
+        return normalized;
+    }
+
+    private String resolveExtension(String fileName) {
+        int dotIndex = fileName.lastIndexOf('.');
+        if (dotIndex < 0 || dotIndex >= fileName.length() - 1) {
+            return ".jpg";
+        }
+        return fileName.substring(dotIndex).toLowerCase(Locale.ROOT);
+    }
+
+    private void deleteAvatarIfManaged(String avatarUrl) {
+        if (avatarUrl == null || avatarUrl.isBlank() || !avatarUrl.startsWith("/uploads/avatars/")) {
+            return;
+        }
+
+        try {
+            String fileName = avatarUrl.substring("/uploads/avatars/".length()).trim();
+            if (fileName.isBlank() || fileName.contains("..") || fileName.contains("/") || fileName.contains("\\")) {
+                return;
+            }
+
+            Path targetPath = AVATAR_UPLOAD_DIRECTORY.resolve(fileName).normalize();
+            if (targetPath.startsWith(AVATAR_UPLOAD_DIRECTORY.normalize())) {
+                Files.deleteIfExists(targetPath);
+            }
+        } catch (IOException ignored) {
+            // Keep the profile update successful even if cleanup could not be completed.
+        }
+    }
+
     private AuthResponse mapAuthResponse(User user, String token) {
         return AuthResponse.builder()
                 .token(token)
@@ -366,6 +508,7 @@ public class AuthServiceImpl implements AuthService {
                 .name(user.getName())
                 .email(user.getEmail())
                 .phone(user.getPhone())
+                .avatar(user.getAvatarUrl())
                 .emailVerified(user.isEmailVerified())
                 .blocked(user.isBlocked())
                 .build();

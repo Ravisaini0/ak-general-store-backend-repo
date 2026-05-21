@@ -10,6 +10,8 @@ import java.time.LocalDateTime;
 public class ChakkiBookingResponse {
     private Long id;
     private Long userId;
+    private String customerName;
+    private String customerEmail;
     private String fullName;
     private String phone;
     private String pickupAddress;
@@ -19,4 +21,5 @@ public class ChakkiBookingResponse {
     private String notes;
     private String status;
     private LocalDateTime createdAt;
+    private LocalDateTime updatedAt;
 }

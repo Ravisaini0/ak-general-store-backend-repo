@@ -9,4 +9,5 @@ public interface ChakkiBookingService {
     ChakkiBookingResponse createBooking(Long userId, ChakkiBookingRequest request);
     List<ChakkiBookingResponse> getUserBookings(Long userId);
     List<ChakkiBookingResponse> getAllBookings();
+    ChakkiBookingResponse updateBookingStatus(Long bookingId, String status);
 }
