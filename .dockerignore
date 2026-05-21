@@ -1,0 +1,11 @@
+target/
+uploads/
+.env*
+.settings/
+.classpath
+.project
+.factorypath
+bin/
+README.md
+PRODUCTION-DEPLOYMENT.md
+start-backend.ps1
