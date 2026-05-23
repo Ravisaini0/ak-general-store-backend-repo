@@ -10,5 +10,6 @@ import org.springframework.stereotype.Component;
 public class OtpDeliveryProperties {
     private String senderName = "AK General Store";
     private String fromEmail = "";
+    private String brevoApiKey = "";
     private int expiryMinutes = 10;
 }

@@ -110,6 +110,7 @@ Example variables:
 | `SPRING_DATASOURCE_USERNAME` | Database username |
 | `SPRING_DATASOURCE_PASSWORD` | Database password |
 | `JWT_SECRET` | Long random JWT secret |
+| `BREVO_API_KEY` | Brevo transactional email API key (recommended for production) |
 | `SMTP_USERNAME` | SMTP sender account |
 | `SMTP_PASSWORD` | SMTP app password / provider password |
 | `OTP_FROM_EMAIL` | Verified sender email |
@@ -128,6 +129,7 @@ Important production variables:
 - `SPRING_DATASOURCE_USERNAME`
 - `SPRING_DATASOURCE_PASSWORD`
 - `JWT_SECRET`
+- `BREVO_API_KEY`
 - `SMTP_USERNAME`
 - `SMTP_PASSWORD`
 - `OTP_FROM_EMAIL`
@@ -187,6 +189,7 @@ Swagger UI:
 - production startup fails if critical secrets are missing
 - `ddl-auto` is expected to be `validate` in production
 - OTP flow is provider-backed, not debug-token based
+- Brevo API is the recommended production OTP channel on Render free services
 
 ## Business Flows Supported
 

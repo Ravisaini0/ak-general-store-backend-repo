@@ -19,6 +19,7 @@ Copy `.env.prod.example` to your secure deployment environment and set real valu
 - `SPRING_DATASOURCE_USERNAME`
 - `SPRING_DATASOURCE_PASSWORD`
 - `JWT_SECRET`
+- `BREVO_API_KEY` or SMTP credentials
 - `SMTP_USERNAME`
 - `SMTP_PASSWORD`
 - `OTP_FROM_EMAIL`
@@ -30,7 +31,7 @@ Copy `.env.prod.example` to your secure deployment environment and set real valu
 
 - app fails fast if required production secrets are missing
 - CORS is driven by `APP_CORS_ALLOWED_ORIGIN_PATTERNS`
-- OTP email delivery uses configured SMTP credentials
+- OTP email delivery uses `BREVO_API_KEY` first when present, otherwise SMTP credentials
 - JPA `ddl-auto` defaults to `validate` in production
 - security headers are enabled on the API
 

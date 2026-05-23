@@ -36,6 +36,9 @@ public class ProductionReadinessValidator {
     @Value("${app.cors.allowed-origin-patterns:}")
     private String corsOrigins;
 
+    @Value("${app.otp.brevo-api-key:}")
+    private String brevoApiKey;
+
     @PostConstruct
     public void validate() {
         List<String> issues = new ArrayList<>();
@@ -44,10 +47,15 @@ public class ProductionReadinessValidator {
         require(datasourceUsername, "spring.datasource.username", issues);
         require(datasourcePassword, "spring.datasource.password", issues);
         require(jwtSecret, "jwt.secret", issues);
-        require(mailUsername, "spring.mail.username", issues);
-        require(mailPassword, "spring.mail.password", issues);
         require(otpFromEmail, "app.otp.from-email", issues);
         require(corsOrigins, "app.cors.allowed-origin-patterns", issues);
+
+        boolean hasBrevoApi = brevoApiKey != null && !brevoApiKey.isBlank();
+        boolean hasSmtp = mailUsername != null && !mailUsername.isBlank() && mailPassword != null && !mailPassword.isBlank();
+
+        if (!hasBrevoApi && !hasSmtp) {
+            issues.add("- Configure either BREVO_API_KEY for API-based OTP emails or SMTP credentials for email delivery.");
+        }
 
         if (jwtSecret != null && jwtSecret.length() < 32) {
             issues.add("jwt.secret must be at least 32 characters long in production.");
