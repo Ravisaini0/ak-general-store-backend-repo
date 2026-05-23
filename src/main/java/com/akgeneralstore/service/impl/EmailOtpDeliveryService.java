@@ -4,6 +4,8 @@ import com.akgeneralstore.config.OtpDeliveryProperties;
 import com.akgeneralstore.exception.BadRequestException;
 import com.akgeneralstore.service.OtpDeliveryService;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.stereotype.Service;
@@ -20,6 +22,7 @@ import java.util.Map;
 @Service
 public class EmailOtpDeliveryService implements OtpDeliveryService {
     private static final String BREVO_SEND_EMAIL_URL = "https://api.brevo.com/v3/smtp/email";
+    private static final Logger log = LoggerFactory.getLogger(EmailOtpDeliveryService.class);
 
     private final JavaMailSender mailSender;
     private final OtpDeliveryProperties otpDeliveryProperties;
@@ -83,12 +86,25 @@ public class EmailOtpDeliveryService implements OtpDeliveryService {
 
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                log.warn(
+                        "Brevo OTP email failed with status {} for destination {}. Response body: {}",
+                        response.statusCode(),
+                        maskEmail(destination),
+                        response.body()
+                );
                 throw new BadRequestException("OTP email delivery is temporarily unavailable. Please try again in a moment.");
             }
         } catch (BadRequestException exception) {
             throw exception;
         } catch (IOException | InterruptedException exception) {
-            Thread.currentThread().interrupt();
+            if (exception instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+            }
+            log.warn(
+                    "Brevo OTP email request failed for destination {}: {}",
+                    maskEmail(destination),
+                    exception.getMessage()
+            );
             throw new BadRequestException("OTP email delivery is temporarily unavailable. Please try again in a moment.");
         }
     }
@@ -152,5 +168,19 @@ public class EmailOtpDeliveryService implements OtpDeliveryService {
                 + " minutes.</p>"
                 + "<p style=\"margin:8px 0 0;color:#94a3b8;font-size:13px;\">If you did not request this code, please ignore this email.</p>"
                 + "</div></body></html>";
+    }
+
+    private String maskEmail(String email) {
+        if (email == null || email.isBlank() || !email.contains("@")) {
+            return "***";
+        }
+
+        String[] parts = email.trim().toLowerCase().split("@", 2);
+        String local = parts[0];
+        String domain = parts[1];
+        if (local.length() <= 2) {
+            return local.charAt(0) + "***@" + domain;
+        }
+        return local.substring(0, 2) + "***@" + domain;
     }
 }
