@@ -10,7 +10,7 @@ import java.util.List;
 @ConfigurationProperties(prefix = "app.upload.product-image")
 public class ProductUploadProperties {
 
-    private long maxBytes = 2 * 1024 * 1024;
+    private long maxBytes = 10 * 1024 * 1024;
     private List<String> allowedExtensions = new ArrayList<>(List.of(".jpg", ".jpeg", ".png", ".webp"));
     private List<String> allowedContentTypes = new ArrayList<>(List.of("image/jpeg", "image/png", "image/webp"));
 
