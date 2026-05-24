@@ -17,6 +17,7 @@ import org.springframework.web.multipart.MultipartFile;
 public interface AuthService {
     AuthResponse register(RegisterRequest request);
     AuthResponse login(LoginRequest request);
+    AuthResponse getCurrentUserSession(Long userId);
     OtpResponse requestLoginOtp(LoginRequest request);
     OtpResponse requestOtp(OtpRequest request);
     OtpVerifyResponse verifyOtp(OtpVerifyRequest request);

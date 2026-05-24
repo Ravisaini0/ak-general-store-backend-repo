@@ -41,6 +41,11 @@ public class AuthController {
         return new ApiResponse<>(true, "Login successful", authService.login(request));
     }
 
+    @GetMapping("/me")
+    public ApiResponse<AuthResponse> getCurrentSession(@AuthenticationPrincipal UserPrincipal principal) {
+        return new ApiResponse<>(true, "Session loaded", authService.getCurrentUserSession(principal.getId()));
+    }
+
     @PostMapping("/request-login-otp")
     public ApiResponse<OtpResponse> requestLoginOtp(@Valid @RequestBody LoginRequest request) {
         return new ApiResponse<>(true, "Login OTP sent", authService.requestLoginOtp(request));

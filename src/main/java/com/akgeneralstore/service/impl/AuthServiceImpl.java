@@ -153,6 +153,22 @@ public class AuthServiceImpl implements AuthService {
     }
 
     @Override
+    public AuthResponse getCurrentUserSession(Long userId) {
+        if (userId == null || userId <= 0) {
+            throw new UnauthorizedException("Your session is no longer valid. Please login again.");
+        }
+
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new UnauthorizedException("Your account could not be found. Please login again."));
+
+        if (user.isBlocked()) {
+            throw new UnauthorizedException("This account has been blocked. Please contact the store admin.");
+        }
+
+        return mapAuthResponse(user, null);
+    }
+
+    @Override
     public OtpResponse requestLoginOtp(LoginRequest request) {
         String loginValue = request.getLoginValue();
         if (loginValue.isBlank()) {
