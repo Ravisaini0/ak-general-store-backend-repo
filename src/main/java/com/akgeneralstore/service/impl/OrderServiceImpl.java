@@ -1,6 +1,7 @@
 package com.akgeneralstore.service.impl;
 
 import com.akgeneralstore.dto.request.OrderRequest;
+import com.akgeneralstore.dto.response.OrderItemSummaryResponse;
 import com.akgeneralstore.dto.response.OrderResponse;
 import com.akgeneralstore.entity.Address;
 import com.akgeneralstore.entity.DeliveryBatch;
@@ -32,6 +33,7 @@ import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 @Service
@@ -184,8 +186,19 @@ public class OrderServiceImpl implements OrderService {
         com.akgeneralstore.entity.DeliveryAssignment assignment = assignmentOptional.orElse(null);
         DeliveryBatch batch = order.getBatchId() == null ? null : deliveryBatchRepository.findById(order.getBatchId()).orElse(null);
 
-        List<String> itemNames = orderItemRepository.findByOrderId(order.getId()).stream()
+        List<OrderItem> orderItems = orderItemRepository.findByOrderId(order.getId());
+        List<String> itemNames = orderItems.stream()
                 .map(OrderItem::getProductName)
+                .filter(Objects::nonNull)
+                .toList();
+        List<OrderItemSummaryResponse> orderItemSummaries = orderItems.stream()
+                .map(orderItem -> OrderItemSummaryResponse.builder()
+                        .productId(orderItem.getProductId())
+                        .productName(orderItem.getProductName())
+                        .quantity(orderItem.getQuantity())
+                        .price(orderItem.getPrice())
+                        .lineTotal(orderItem.getPrice().multiply(BigDecimal.valueOf(orderItem.getQuantity())))
+                        .build())
                 .toList();
         return OrderResponse.builder()
                 .orderId(order.getId())
@@ -229,6 +242,7 @@ public class OrderServiceImpl implements OrderService {
                 .payoutReference(assignment != null ? assignment.getPayoutReference() : null)
                 .payoutPaidAt(assignment != null ? assignment.getPayoutPaidAt() : null)
                 .itemNames(itemNames)
+                .orderItems(orderItemSummaries)
                 .build();
     }
 

@@ -1,6 +1,5 @@
 package com.akgeneralstore.service.impl;
 
-import com.akgeneralstore.config.ProductUploadProperties;
 import com.akgeneralstore.dto.request.ProductRequest;
 import com.akgeneralstore.dto.response.ProductImageUploadResponse;
 import com.akgeneralstore.dto.response.ProductResponse;
@@ -11,44 +10,35 @@ import com.akgeneralstore.entity.Product;
 import com.akgeneralstore.exception.BadRequestException;
 import com.akgeneralstore.exception.ResourceNotFoundException;
 import com.akgeneralstore.repository.ProductRepository;
+import com.akgeneralstore.service.AssetStorageService;
 import com.akgeneralstore.service.ProductService;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
-import javax.imageio.ImageIO;
-import java.awt.image.BufferedImage;
-import java.io.ByteArrayInputStream;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.nio.file.StandardCopyOption;
-import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Objects;
 import java.util.Locale;
 import java.util.Map;
-import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service
 public class ProductServiceImpl implements ProductService {
-    private static final Path PRODUCT_UPLOAD_DIRECTORY = Paths.get("uploads", "products");
     private static final Map<String, List<String>> SEARCH_ALIASES = createSearchAliases();
 
     private final ProductRepository productRepository;
-    private final ProductUploadProperties productUploadProperties;
     private final ObjectMapper objectMapper;
+    private final AssetStorageService assetStorageService;
 
     public ProductServiceImpl(
             ProductRepository productRepository,
-            ProductUploadProperties productUploadProperties,
-            ObjectMapper objectMapper
+            ObjectMapper objectMapper,
+            AssetStorageService assetStorageService
     ) {
         this.productRepository = productRepository;
-        this.productUploadProperties = productUploadProperties;
         this.objectMapper = objectMapper;
+        this.assetStorageService = assetStorageService;
     }
 
     @Override
@@ -108,52 +98,14 @@ public class ProductServiceImpl implements ProductService {
 
     @Override
     public ProductImageUploadResponse uploadProductImage(MultipartFile file) {
-        if (file == null || file.isEmpty()) {
-            throw new BadRequestException("Please select an image file to upload.");
-        }
-
-        if (file.getSize() > productUploadProperties.getMaxBytes()) {
-            throw new BadRequestException("Image size is too large. Please upload a smaller file.");
-        }
-
-        String contentType = normalizeContentType(file.getContentType());
-        if (!productUploadProperties.getAllowedContentTypes().contains(contentType)) {
-            throw new BadRequestException("Only JPG, PNG, or WEBP images are allowed.");
-        }
-
-        String originalName = sanitizeOriginalName(file.getOriginalFilename());
-        String extension = resolveExtension(originalName);
-
-        if (!productUploadProperties.getAllowedExtensions().contains(extension)) {
-            throw new BadRequestException("Unsupported image extension. Allowed: JPG, PNG, WEBP.");
-        }
-
-        try {
-            byte[] fileBytes = file.getBytes();
-            BufferedImage bufferedImage = ImageIO.read(new ByteArrayInputStream(fileBytes));
-            if (bufferedImage == null || bufferedImage.getWidth() <= 0 || bufferedImage.getHeight() <= 0) {
-                throw new BadRequestException("Invalid image file uploaded.");
-            }
-
-            String fileName = UUID.randomUUID() + extension;
-            Files.createDirectories(PRODUCT_UPLOAD_DIRECTORY);
-            Path targetPath = PRODUCT_UPLOAD_DIRECTORY.resolve(fileName).normalize();
-
-            if (!targetPath.startsWith(PRODUCT_UPLOAD_DIRECTORY.normalize())) {
-                throw new BadRequestException("Invalid upload target path.");
-            }
-
-            Files.copy(new ByteArrayInputStream(fileBytes), targetPath, StandardCopyOption.REPLACE_EXISTING);
-            return new ProductImageUploadResponse("/uploads/products/" + fileName);
-        } catch (BadRequestException exception) {
-            throw exception;
-        } catch (IOException exception) {
-            throw new BadRequestException("Product image could not be uploaded.");
-        }
+        return new ProductImageUploadResponse(assetStorageService.storeImage(file, "product", "product-image.jpg"));
     }
 
     private Product toProduct(Product product, ProductRequest request) {
-        List<String> normalizedImageUrls = normalizeImageUrls(request.getImageUrls(), request.getImageUrl());
+        List<String> previousImageUrls = readImageGallery(product.getImageGallery(), product.getImageUrl());
+        List<String> normalizedImageUrls = normalizeImageUrls(request.getImageUrls(), request.getImageUrl()).stream()
+                .map(url -> assetStorageService.normalizeAssetUrl(url, "product"))
+                .collect(Collectors.toList());
         product.setName(request.getName());
         product.setSlug(request.getName().trim().toLowerCase().replace(" ", "-"));
         product.setDescription(request.getDescription());
@@ -164,11 +116,29 @@ public class ProductServiceImpl implements ProductService {
         product.setFeatured(request.isFeatured());
         product.setImageUrl(normalizedImageUrls.isEmpty() ? request.getImageUrl() : normalizedImageUrls.get(0));
         product.setImageGallery(writeImageGallery(normalizedImageUrls));
+        previousImageUrls.stream()
+                .filter(previousUrl -> normalizedImageUrls.stream().noneMatch(currentUrl -> Objects.equals(currentUrl, previousUrl)))
+                .forEach(assetStorageService::deleteManagedAsset);
         return product;
     }
 
     private ProductResponse mapProduct(Product product) {
-        List<String> imageUrls = readImageGallery(product.getImageGallery(), product.getImageUrl());
+        List<String> rawImageUrls = readImageGallery(product.getImageGallery(), product.getImageUrl());
+        List<String> imageUrls = rawImageUrls.stream()
+                .map(url -> assetStorageService.normalizeAssetUrl(url, "product"))
+                .distinct()
+                .collect(Collectors.toList());
+        String primaryImageUrl = assetStorageService.normalizeAssetUrl(product.getImageUrl(), "product");
+        String resolvedPrimaryImage = !imageUrls.isEmpty()
+                ? imageUrls.get(0)
+                : (primaryImageUrl == null ? "" : primaryImageUrl.trim());
+
+        if (!Objects.equals(product.getImageUrl(), resolvedPrimaryImage) || !rawImageUrls.equals(imageUrls)) {
+            product.setImageUrl(resolvedPrimaryImage);
+            product.setImageGallery(writeImageGallery(imageUrls));
+            productRepository.save(product);
+        }
+
         return ProductResponse.builder()
                 .id(product.getId())
                 .name(product.getName())
@@ -177,7 +147,7 @@ public class ProductServiceImpl implements ProductService {
                 .price(product.getPrice())
                 .originalPrice(product.getOriginalPrice())
                 .unit(product.getUnit())
-                .imageUrl(product.getImageUrl())
+                .imageUrl(resolvedPrimaryImage)
                 .imageUrls(imageUrls)
                 .featured(product.isFeatured())
                 .categoryId(product.getCategoryId())
@@ -257,32 +227,6 @@ public class ProductServiceImpl implements ProductService {
 
     private String safeLower(String value) {
         return value == null ? "" : value.toLowerCase(Locale.ROOT);
-    }
-
-    private String normalizeContentType(String contentType) {
-        return contentType == null ? "" : contentType.trim().toLowerCase(Locale.ROOT);
-    }
-
-    private String sanitizeOriginalName(String originalName) {
-        String fallbackName = originalName == null || originalName.isBlank() ? "product-image.jpg" : originalName;
-        String normalized = Normalizer.normalize(fallbackName, Normalizer.Form.NFKC)
-                .replace("\\", "")
-                .replace("/", "")
-                .trim();
-
-        if (normalized.isBlank()) {
-            return "product-image.jpg";
-        }
-
-        return normalized;
-    }
-
-    private String resolveExtension(String fileName) {
-        int dotIndex = fileName.lastIndexOf('.');
-        if (dotIndex < 0 || dotIndex >= fileName.length() - 1) {
-            return ".jpg";
-        }
-        return fileName.substring(dotIndex).toLowerCase(Locale.ROOT);
     }
 
     private List<String> normalizeImageUrls(List<String> imageUrls, String imageUrl) {

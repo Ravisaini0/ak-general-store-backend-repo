@@ -59,4 +59,5 @@ public class OrderResponse {
     private String payoutReference;
     private LocalDateTime payoutPaidAt;
     private List<String> itemNames;
+    private List<OrderItemSummaryResponse> orderItems;
 }
