@@ -45,10 +45,11 @@ public class AssetStorageServiceImpl implements AssetStorageService {
             throw new BadRequestException("Please select an image file to upload.");
         }
 
-        if (file.getSize() > productUploadProperties.getMaxBytes()) {
+        long maxAllowedBytes = resolveMaxAllowedBytes(scope);
+        if (file.getSize() > maxAllowedBytes) {
             throw new BadRequestException(String.format(
                     "Image size is too large. Max allowed size is %s. Please compress or resize the image and try again.",
-                    formatBytes(productUploadProperties.getMaxBytes())
+                    formatBytes(maxAllowedBytes)
             ));
         }
 
@@ -152,6 +153,17 @@ public class AssetStorageServiceImpl implements AssetStorageService {
         storedAsset.setCreatedAt(LocalDateTime.now());
         storedAssetRepository.save(storedAsset);
         return ASSET_URL_PREFIX + storedAsset.getToken();
+    }
+
+    private long resolveMaxAllowedBytes(String scope) {
+        String normalizedScope = scope == null ? "" : scope.trim().toLowerCase(Locale.ROOT);
+        if ("category".equals(normalizedScope)) {
+            return productUploadProperties.getCategoryMaxBytes();
+        }
+        if ("avatar".equals(normalizedScope)) {
+            return productUploadProperties.getAvatarMaxBytes();
+        }
+        return productUploadProperties.getMaxBytes();
     }
 
     private void validateImageBytes(byte[] fileBytes) throws IOException {

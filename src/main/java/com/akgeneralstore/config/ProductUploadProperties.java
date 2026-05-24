@@ -11,6 +11,8 @@ import java.util.List;
 public class ProductUploadProperties {
 
     private long maxBytes = 10 * 1024 * 1024;
+    private long categoryMaxBytes = 5 * 1024 * 1024;
+    private long avatarMaxBytes = 2 * 1024 * 1024;
     private List<String> allowedExtensions = new ArrayList<>(List.of(".jpg", ".jpeg", ".png", ".webp"));
     private List<String> allowedContentTypes = new ArrayList<>(List.of("image/jpeg", "image/png", "image/webp"));
 
@@ -20,6 +22,22 @@ public class ProductUploadProperties {
 
     public void setMaxBytes(long maxBytes) {
         this.maxBytes = maxBytes;
+    }
+
+    public long getCategoryMaxBytes() {
+        return categoryMaxBytes;
+    }
+
+    public void setCategoryMaxBytes(long categoryMaxBytes) {
+        this.categoryMaxBytes = categoryMaxBytes;
+    }
+
+    public long getAvatarMaxBytes() {
+        return avatarMaxBytes;
+    }
+
+    public void setAvatarMaxBytes(long avatarMaxBytes) {
+        this.avatarMaxBytes = avatarMaxBytes;
     }
 
     public List<String> getAllowedExtensions() {
