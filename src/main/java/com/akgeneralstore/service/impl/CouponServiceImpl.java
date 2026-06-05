@@ -1,5 +1,6 @@
 package com.akgeneralstore.service.impl;
 
+import com.akgeneralstore.dto.response.CouponResponse;
 import com.akgeneralstore.dto.response.CouponValidationResponse;
 import com.akgeneralstore.entity.Coupon;
 import com.akgeneralstore.exception.BadRequestException;
@@ -11,6 +12,7 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.util.List;
 
 @Service
 public class CouponServiceImpl implements CouponService {
@@ -21,6 +23,14 @@ public class CouponServiceImpl implements CouponService {
     public CouponServiceImpl(CouponRepository couponRepository, OrderRepository orderRepository) {
         this.couponRepository = couponRepository;
         this.orderRepository = orderRepository;
+    }
+
+    @Override
+    public List<CouponResponse> getPublicCoupons() {
+        return couponRepository.findAllByActiveTrueOrderByIdDesc().stream()
+                .filter(this::isCouponCurrentlyVisible)
+                .map(this::mapCoupon)
+                .toList();
     }
 
     @Override
@@ -92,5 +102,32 @@ public class CouponServiceImpl implements CouponService {
         }
 
         return coupon.getDiscountValue().min(orderAmount).setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private boolean isCouponCurrentlyVisible(Coupon coupon) {
+        if (coupon.getExpiryDate() != null && coupon.getExpiryDate().isBefore(LocalDate.now())) {
+            return false;
+        }
+
+        long currentTotalUses = orderRepository.countByCouponCodeIgnoreCase(coupon.getCode());
+        return coupon.getMaxTotalUses() == null
+                || coupon.getMaxTotalUses() <= 0
+                || currentTotalUses < coupon.getMaxTotalUses();
+    }
+
+    private CouponResponse mapCoupon(Coupon coupon) {
+        return CouponResponse.builder()
+                .id(coupon.getId())
+                .code(coupon.getCode())
+                .discountType(coupon.getDiscountType())
+                .discountValue(coupon.getDiscountValue())
+                .minimumOrderAmount(coupon.getMinimumOrderAmount())
+                .maxUsesPerUser(coupon.getMaxUsesPerUser())
+                .maxTotalUses(coupon.getMaxTotalUses())
+                .expiryDate(coupon.getExpiryDate())
+                .firstOrderOnly(coupon.isFirstOrderOnly())
+                .active(coupon.isActive())
+                .currentTotalUses(orderRepository.countByCouponCodeIgnoreCase(coupon.getCode()))
+                .build();
     }
 }
