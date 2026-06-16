@@ -38,7 +38,7 @@ ON DUPLICATE KEY UPDATE
   first_order_only = VALUES(first_order_only),
   active = VALUES(active);
 
-INSERT INTO store_settings (id, setting_key, setting_value) VALUES
+INSERT IGNORE INTO store_settings (id, setting_key, setting_value) VALUES
   (1, 'store_name', 'AK General Store'),
   (2, 'support_phone', '9483989109'),
   (3, 'support_email', 'support@akgeneralstore.com'),
@@ -50,7 +50,4 @@ INSERT INTO store_settings (id, setting_key, setting_value) VALUES
   (9, 'upi_merchant_name', 'AK General Store'),
   (10, 'upi_id', 'support@akgeneralstore'),
   (11, 'delivery_base_payout_amount', '20'),
-  (12, 'delivery_additional_payout_amount', '10')
-ON DUPLICATE KEY UPDATE
-  setting_key = VALUES(setting_key),
-  setting_value = VALUES(setting_value);
+  (12, 'delivery_additional_payout_amount', '10');
