@@ -1,6 +1,7 @@
 package com.akgeneralstore.controller;
 
 import com.akgeneralstore.dto.response.ApiResponse;
+import com.akgeneralstore.dto.response.CategoryBulkImportResponse;
 import com.akgeneralstore.dto.response.ProductImageUploadResponse;
 import com.akgeneralstore.entity.Category;
 import com.akgeneralstore.service.CategoryService;
@@ -26,6 +27,11 @@ public class CategoryController {
     @PostMapping("/api/admin/categories")
     public ApiResponse<Category> createCategory(@RequestBody Category category) {
         return new ApiResponse<>(true, "Category created", categoryService.createCategory(category));
+    }
+
+    @PostMapping("/api/admin/categories/bulk-import")
+    public ApiResponse<CategoryBulkImportResponse> bulkImportCategories(@RequestBody List<Category> categories) {
+        return new ApiResponse<>(true, "Categories imported", categoryService.bulkImportCategories(categories));
     }
 
     @PutMapping("/api/admin/categories/{id}")
