@@ -2,6 +2,7 @@ package com.akgeneralstore.controller;
 
 import com.akgeneralstore.dto.request.ProductRequest;
 import com.akgeneralstore.dto.response.ApiResponse;
+import com.akgeneralstore.dto.response.ProductBulkImportResponse;
 import com.akgeneralstore.dto.response.ProductImageUploadResponse;
 import com.akgeneralstore.dto.response.ProductResponse;
 import com.akgeneralstore.service.ProductService;
@@ -33,6 +34,11 @@ public class ProductController {
     @PostMapping("/api/admin/products")
     public ApiResponse<ProductResponse> createProduct(@Valid @RequestBody ProductRequest request) {
         return new ApiResponse<>(true, "Product created", productService.createProduct(request));
+    }
+
+    @PostMapping("/api/admin/products/bulk-import")
+    public ApiResponse<ProductBulkImportResponse> bulkImportProducts(@RequestBody List<ProductRequest> requests) {
+        return new ApiResponse<>(true, "Products imported", productService.bulkImportProducts(requests));
     }
 
     @PutMapping("/api/admin/products/{id}")

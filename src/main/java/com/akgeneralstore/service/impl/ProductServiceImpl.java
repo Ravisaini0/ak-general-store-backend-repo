@@ -1,6 +1,7 @@
 package com.akgeneralstore.service.impl;
 
 import com.akgeneralstore.dto.request.ProductRequest;
+import com.akgeneralstore.dto.response.ProductBulkImportResponse;
 import com.akgeneralstore.dto.response.ProductImageUploadResponse;
 import com.akgeneralstore.dto.response.ProductResponse;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -82,6 +83,49 @@ public class ProductServiceImpl implements ProductService {
     }
 
     @Override
+    public ProductBulkImportResponse bulkImportProducts(List<ProductRequest> requests) {
+        if (requests == null || requests.isEmpty()) {
+            throw new BadRequestException("Please upload at least one product row.");
+        }
+
+        List<ProductResponse> importedProducts = new ArrayList<>();
+        List<String> errors = new ArrayList<>();
+        int createdCount = 0;
+        int updatedCount = 0;
+
+        for (int index = 0; index < requests.size(); index++) {
+            ProductRequest request = requests.get(index);
+            int rowNumber = index + 1;
+
+            try {
+                validateBulkProductRow(request, rowNumber);
+                String slug = buildSlug(request.getName());
+                Product product = productRepository.findBySlug(slug).orElseGet(Product::new);
+                boolean isNewProduct = product.getId() == null;
+                Product savedProduct = productRepository.save(toProduct(product, request));
+                importedProducts.add(mapProduct(savedProduct));
+
+                if (isNewProduct) {
+                    createdCount++;
+                } else {
+                    updatedCount++;
+                }
+            } catch (Exception exception) {
+                errors.add("Row " + rowNumber + ": " + exception.getMessage());
+            }
+        }
+
+        return ProductBulkImportResponse.builder()
+                .totalRows(requests.size())
+                .createdCount(createdCount)
+                .updatedCount(updatedCount)
+                .failedCount(errors.size())
+                .products(importedProducts)
+                .errors(errors)
+                .build();
+    }
+
+    @Override
     public ProductResponse updateProduct(Long id, ProductRequest request) {
         Product product = productRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Product not found"));
@@ -107,7 +151,7 @@ public class ProductServiceImpl implements ProductService {
                 .map(url -> assetStorageService.normalizeAssetUrl(url, "product"))
                 .collect(Collectors.toList());
         product.setName(request.getName());
-        product.setSlug(request.getName().trim().toLowerCase().replace(" ", "-"));
+        product.setSlug(buildSlug(request.getName()));
         product.setDescription(request.getDescription());
         product.setPrice(request.getPrice());
         product.setOriginalPrice(request.getOriginalPrice());
@@ -227,6 +271,33 @@ public class ProductServiceImpl implements ProductService {
 
     private String safeLower(String value) {
         return value == null ? "" : value.toLowerCase(Locale.ROOT);
+    }
+
+    private void validateBulkProductRow(ProductRequest request, int rowNumber) {
+        if (request == null) {
+            throw new BadRequestException("Product row is empty.");
+        }
+
+        if (request.getName() == null || request.getName().isBlank()) {
+            throw new BadRequestException("Product name is required.");
+        }
+
+        if (request.getPrice() == null) {
+            throw new BadRequestException("Price is required.");
+        }
+
+        if (request.getCategoryId() == null) {
+            throw new BadRequestException("Category ID is required.");
+        }
+    }
+
+    private String buildSlug(String name) {
+        return name == null
+                ? ""
+                : name.trim()
+                        .toLowerCase(Locale.ROOT)
+                        .replaceAll("[^a-z0-9]+", "-")
+                        .replaceAll("(^-|-$)", "");
     }
 
     private List<String> normalizeImageUrls(List<String> imageUrls, String imageUrl) {
