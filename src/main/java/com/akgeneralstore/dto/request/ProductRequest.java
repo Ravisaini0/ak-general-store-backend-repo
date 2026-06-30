@@ -21,6 +21,7 @@ public class ProductRequest {
     private BigDecimal originalPrice;
     private String unit;
     private Long categoryId;
+    private List<Long> categoryIds;
     private boolean featured;
     private String imageUrl;
     private List<String> imageUrls;

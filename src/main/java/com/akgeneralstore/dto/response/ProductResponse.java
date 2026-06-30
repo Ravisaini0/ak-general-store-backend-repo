@@ -21,4 +21,5 @@ public class ProductResponse {
     private List<String> imageUrls;
     private boolean featured;
     private Long categoryId;
+    private List<Long> categoryIds;
 }

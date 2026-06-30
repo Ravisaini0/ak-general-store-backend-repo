@@ -10,6 +10,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.akgeneralstore.entity.Product;
 import com.akgeneralstore.exception.BadRequestException;
 import com.akgeneralstore.exception.ResourceNotFoundException;
+import com.akgeneralstore.repository.CategoryRepository;
 import com.akgeneralstore.repository.ProductRepository;
 import com.akgeneralstore.service.AssetStorageService;
 import com.akgeneralstore.service.ProductService;
@@ -29,15 +30,18 @@ public class ProductServiceImpl implements ProductService {
     private static final Map<String, List<String>> SEARCH_ALIASES = createSearchAliases();
 
     private final ProductRepository productRepository;
+    private final CategoryRepository categoryRepository;
     private final ObjectMapper objectMapper;
     private final AssetStorageService assetStorageService;
 
     public ProductServiceImpl(
             ProductRepository productRepository,
+            CategoryRepository categoryRepository,
             ObjectMapper objectMapper,
             AssetStorageService assetStorageService
     ) {
         this.productRepository = productRepository;
+        this.categoryRepository = categoryRepository;
         this.objectMapper = objectMapper;
         this.assetStorageService = assetStorageService;
     }
@@ -156,7 +160,14 @@ public class ProductServiceImpl implements ProductService {
         product.setPrice(request.getPrice());
         product.setOriginalPrice(request.getOriginalPrice());
         product.setUnit(request.getUnit());
-        product.setCategoryId(request.getCategoryId());
+        List<Long> categoryIds = normalizeCategoryIds(request.getCategoryIds(), request.getCategoryId());
+        List<com.akgeneralstore.entity.Category> categories = categoryRepository.findAllById(categoryIds);
+        if (categories.size() != categoryIds.size()) {
+            throw new BadRequestException("One or more selected categories were not found.");
+        }
+        product.setCategoryId(categoryIds.isEmpty() ? null : categoryIds.get(0));
+        product.getCategories().clear();
+        product.getCategories().addAll(categories);
         product.setFeatured(request.isFeatured());
         product.setImageUrl(normalizedImageUrls.isEmpty() ? request.getImageUrl() : normalizedImageUrls.get(0));
         product.setImageGallery(writeImageGallery(normalizedImageUrls));
@@ -176,6 +187,7 @@ public class ProductServiceImpl implements ProductService {
         String resolvedPrimaryImage = !imageUrls.isEmpty()
                 ? imageUrls.get(0)
                 : (primaryImageUrl == null ? "" : primaryImageUrl.trim());
+        List<Long> categoryIds = getProductCategoryIds(product);
 
         if (!Objects.equals(product.getImageUrl(), resolvedPrimaryImage) || !rawImageUrls.equals(imageUrls)) {
             product.setImageUrl(resolvedPrimaryImage);
@@ -194,7 +206,8 @@ public class ProductServiceImpl implements ProductService {
                 .imageUrl(resolvedPrimaryImage)
                 .imageUrls(imageUrls)
                 .featured(product.isFeatured())
-                .categoryId(product.getCategoryId())
+                .categoryId(categoryIds.isEmpty() ? product.getCategoryId() : categoryIds.get(0))
+                .categoryIds(categoryIds)
                 .build();
     }
 
@@ -286,9 +299,39 @@ public class ProductServiceImpl implements ProductService {
             throw new BadRequestException("Price is required.");
         }
 
-        if (request.getCategoryId() == null) {
-            throw new BadRequestException("Category ID is required.");
+        if (normalizeCategoryIds(request.getCategoryIds(), request.getCategoryId()).isEmpty()) {
+            throw new BadRequestException("At least one category is required.");
         }
+    }
+
+    private List<Long> normalizeCategoryIds(List<Long> categoryIds, Long categoryId) {
+        List<Long> normalized = new ArrayList<>();
+
+        if (categoryIds != null) {
+            for (Long id : categoryIds) {
+                if (id != null && id > 0 && !normalized.contains(id)) {
+                    normalized.add(id);
+                }
+            }
+        }
+
+        if (normalized.isEmpty() && categoryId != null && categoryId > 0) {
+            normalized.add(categoryId);
+        }
+
+        return normalized;
+    }
+
+    private List<Long> getProductCategoryIds(Product product) {
+        if (product.getCategories() != null && !product.getCategories().isEmpty()) {
+            return product.getCategories().stream()
+                    .map(com.akgeneralstore.entity.Category::getId)
+                    .filter(Objects::nonNull)
+                    .distinct()
+                    .collect(Collectors.toList());
+        }
+
+        return product.getCategoryId() == null ? List.of() : List.of(product.getCategoryId());
     }
 
     private String buildSlug(String name) {
