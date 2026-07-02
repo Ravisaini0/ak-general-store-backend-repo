@@ -276,7 +276,7 @@ public class AdminServiceImpl implements AdminService {
                 .storeName(getSetting("store_name", "AK General Store"))
                 .supportPhone(getSetting("support_phone", "9483989109"))
                 .supportEmail(getSetting("support_email", "support@akgeneralstore.com"))
-                .freeDeliveryThreshold(getSetting("free_delivery_threshold", "299"))
+                .freeDeliveryThreshold(getSetting("free_delivery_threshold", "499"))
                 .deliveryCharge(getSetting("delivery_charge", "40"))
                 .enabledPayments(getSetting("enabled_payments", "COD,UPI,RAZORPAY"))
                 .serviceRadiusKm(getSetting("service_radius_km", "25"))

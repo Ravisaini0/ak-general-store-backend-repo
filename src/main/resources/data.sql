@@ -42,7 +42,7 @@ INSERT IGNORE INTO store_settings (id, setting_key, setting_value) VALUES
   (1, 'store_name', 'AK General Store'),
   (2, 'support_phone', '9483989109'),
   (3, 'support_email', 'support@akgeneralstore.com'),
-  (4, 'free_delivery_threshold', '299'),
+  (4, 'free_delivery_threshold', '499'),
   (5, 'delivery_charge', '40'),
   (6, 'enabled_payments', 'COD,UPI,RAZORPAY'),
   (7, 'service_radius_km', '25'),
@@ -51,3 +51,8 @@ INSERT IGNORE INTO store_settings (id, setting_key, setting_value) VALUES
   (10, 'upi_id', 'support@akgeneralstore'),
   (11, 'delivery_base_payout_amount', '20'),
   (12, 'delivery_additional_payout_amount', '10');
+
+UPDATE store_settings
+SET setting_value = '499'
+WHERE setting_key = 'free_delivery_threshold'
+  AND setting_value = '299';
