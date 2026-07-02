@@ -15,6 +15,9 @@ import com.akgeneralstore.repository.CategoryRepository;
 import com.akgeneralstore.repository.ProductRepository;
 import com.akgeneralstore.service.AssetStorageService;
 import com.akgeneralstore.service.ProductService;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -79,30 +82,26 @@ public class ProductServiceImpl implements ProductService {
     @Override
     public ProductPageResponse getBalancedProductPage(int page, int size) {
         int safeSize = Math.max(1, Math.min(size, 30));
-        List<Product> products = productRepository.findAll();
         List<Long> categoryIds = categoryRepository.findAll().stream()
                 .map(com.akgeneralstore.entity.Category::getId)
                 .filter(Objects::nonNull)
                 .toList();
-        List<Product> orderedProducts = buildBalancedProductOrder(products, categoryIds);
-        int totalItems = orderedProducts.size();
-        int totalPages = Math.max(1, (int) Math.ceil(totalItems / (double) safeSize));
+        int totalItems = (int) productRepository.count();
+        List<Product> firstPageProducts = getFirstBalancedProducts(categoryIds, safeSize);
+        List<Long> firstPageProductIds = firstPageProducts.stream()
+                .map(Product::getId)
+                .filter(Objects::nonNull)
+                .toList();
+        int remainingItems = Math.max(0, totalItems - firstPageProductIds.size());
+        int totalPages = Math.max(1, 1 + (int) Math.ceil(remainingItems / (double) safeSize));
         int safePage = Math.max(1, Math.min(page, totalPages));
-        int fromIndex = Math.min((safePage - 1) * safeSize, totalItems);
-        int toIndex = Math.min(fromIndex + safeSize, totalItems);
-        List<Product> pageProducts = new ArrayList<>(orderedProducts.subList(fromIndex, toIndex));
 
-        if (pageProducts.size() < safeSize && orderedProducts.size() > pageProducts.size()) {
-            Set<Long> pageProductIds = pageProducts.stream().map(Product::getId).collect(Collectors.toSet());
-            for (Product product : orderedProducts) {
-                if (pageProducts.size() >= safeSize) {
-                    break;
-                }
-                if (!pageProductIds.contains(product.getId())) {
-                    pageProducts.add(product);
-                    pageProductIds.add(product.getId());
-                }
-            }
+        List<Product> pageProducts = safePage == 1
+                ? new ArrayList<>(firstPageProducts)
+                : getRemainingProductPage(firstPageProductIds, safePage - 2, safeSize);
+
+        if (pageProducts.size() < safeSize && totalItems > pageProducts.size()) {
+            fillProductPage(pageProducts, safeSize);
         }
 
         return ProductPageResponse.builder()
@@ -160,6 +159,68 @@ public class ProductServiceImpl implements ProductService {
         }
 
         return orderedProducts;
+    }
+
+    private List<Product> getFirstBalancedProducts(List<Long> categoryIds, int safeSize) {
+        List<Product> pageProducts = new ArrayList<>();
+        Set<Long> usedProductIds = new HashSet<>();
+        Pageable firstFewById = PageRequest.of(0, Math.max(3, safeSize), Sort.by("id").ascending());
+
+        for (Long categoryId : categoryIds) {
+            if (pageProducts.size() >= safeSize) {
+                break;
+            }
+
+            Product product = productRepository.findByCategories_Id(categoryId, firstFewById).stream()
+                    .filter(item -> item.getId() != null && !usedProductIds.contains(item.getId()))
+                    .findFirst()
+                    .orElseGet(() -> productRepository.findByCategoryId(categoryId, firstFewById).stream()
+                            .filter(item -> item.getId() != null && !usedProductIds.contains(item.getId()))
+                            .findFirst()
+                            .orElse(null));
+
+            if (product != null) {
+                pageProducts.add(product);
+                usedProductIds.add(product.getId());
+            }
+        }
+
+        if (pageProducts.size() < safeSize) {
+            fillProductPage(pageProducts, safeSize);
+        }
+
+        return pageProducts;
+    }
+
+    private List<Product> getRemainingProductPage(List<Long> excludedIds, int zeroBasedPage, int safeSize) {
+        Pageable pageable = PageRequest.of(Math.max(0, zeroBasedPage), safeSize, Sort.by("id").ascending());
+
+        if (excludedIds == null || excludedIds.isEmpty()) {
+            return productRepository.findAll(pageable).getContent();
+        }
+
+        return productRepository.findByIdNotIn(excludedIds, pageable);
+    }
+
+    private void fillProductPage(List<Product> pageProducts, int safeSize) {
+        Set<Long> usedProductIds = pageProducts.stream()
+                .map(Product::getId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        Pageable pageable = PageRequest.of(0, safeSize, Sort.by("id").ascending());
+        List<Product> fallbackProducts = usedProductIds.isEmpty()
+                ? productRepository.findAll(pageable).getContent()
+                : productRepository.findByIdNotIn(new ArrayList<>(usedProductIds), pageable);
+
+        for (Product product : fallbackProducts) {
+            if (pageProducts.size() >= safeSize) {
+                break;
+            }
+            if (product.getId() != null && !usedProductIds.contains(product.getId())) {
+                pageProducts.add(product);
+                usedProductIds.add(product.getId());
+            }
+        }
     }
 
     @Override
