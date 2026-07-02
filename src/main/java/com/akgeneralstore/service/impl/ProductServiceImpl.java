@@ -3,6 +3,7 @@ package com.akgeneralstore.service.impl;
 import com.akgeneralstore.dto.request.ProductRequest;
 import com.akgeneralstore.dto.response.ProductBulkImportResponse;
 import com.akgeneralstore.dto.response.ProductImageUploadResponse;
+import com.akgeneralstore.dto.response.ProductPageResponse;
 import com.akgeneralstore.dto.response.ProductResponse;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -19,10 +20,12 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
@@ -74,10 +77,89 @@ public class ProductServiceImpl implements ProductService {
     }
 
     @Override
+    public ProductPageResponse getBalancedProductPage(int page, int size) {
+        int safeSize = Math.max(1, Math.min(size, 30));
+        List<Product> products = productRepository.findAll();
+        List<Long> categoryIds = categoryRepository.findAll().stream()
+                .map(com.akgeneralstore.entity.Category::getId)
+                .filter(Objects::nonNull)
+                .toList();
+        List<Product> orderedProducts = buildBalancedProductOrder(products, categoryIds);
+        int totalItems = orderedProducts.size();
+        int totalPages = Math.max(1, (int) Math.ceil(totalItems / (double) safeSize));
+        int safePage = Math.max(1, Math.min(page, totalPages));
+        int fromIndex = Math.min((safePage - 1) * safeSize, totalItems);
+        int toIndex = Math.min(fromIndex + safeSize, totalItems);
+        List<Product> pageProducts = new ArrayList<>(orderedProducts.subList(fromIndex, toIndex));
+
+        if (pageProducts.size() < safeSize && orderedProducts.size() > pageProducts.size()) {
+            Set<Long> pageProductIds = pageProducts.stream().map(Product::getId).collect(Collectors.toSet());
+            for (Product product : orderedProducts) {
+                if (pageProducts.size() >= safeSize) {
+                    break;
+                }
+                if (!pageProductIds.contains(product.getId())) {
+                    pageProducts.add(product);
+                    pageProductIds.add(product.getId());
+                }
+            }
+        }
+
+        return ProductPageResponse.builder()
+                .products(pageProducts.stream().map(this::mapProduct).toList())
+                .page(safePage)
+                .size(safeSize)
+                .totalPages(totalPages)
+                .totalItems(totalItems)
+                .build();
+    }
+
+    @Override
     public ProductResponse getProductById(Long id) {
         Product product = productRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Product not found"));
         return mapProduct(product);
+    }
+
+    private List<Product> buildBalancedProductOrder(List<Product> products, List<Long> categoryIds) {
+        if (categoryIds == null || categoryIds.isEmpty()) {
+            return products;
+        }
+
+        List<Product> orderedProducts = new ArrayList<>();
+        Set<Long> usedProductIds = new HashSet<>();
+
+        while (usedProductIds.size() < products.size()) {
+            boolean addedInRound = false;
+
+            for (Long categoryId : categoryIds) {
+                Product nextProduct = products.stream()
+                        .filter(product -> product.getId() != null && !usedProductIds.contains(product.getId()))
+                        .filter(product -> getProductCategoryIds(product).contains(categoryId))
+                        .findFirst()
+                        .orElse(null);
+
+                if (nextProduct != null) {
+                    orderedProducts.add(nextProduct);
+                    usedProductIds.add(nextProduct.getId());
+                    addedInRound = true;
+                }
+            }
+
+            if (!addedInRound) {
+                Product remainingProduct = products.stream()
+                        .filter(product -> product.getId() != null && !usedProductIds.contains(product.getId()))
+                        .findFirst()
+                        .orElse(null);
+                if (remainingProduct == null) {
+                    break;
+                }
+                orderedProducts.add(remainingProduct);
+                usedProductIds.add(remainingProduct.getId());
+            }
+        }
+
+        return orderedProducts;
     }
 
     @Override

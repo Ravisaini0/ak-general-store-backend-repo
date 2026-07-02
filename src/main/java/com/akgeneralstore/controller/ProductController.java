@@ -4,6 +4,7 @@ import com.akgeneralstore.dto.request.ProductRequest;
 import com.akgeneralstore.dto.response.ApiResponse;
 import com.akgeneralstore.dto.response.ProductBulkImportResponse;
 import com.akgeneralstore.dto.response.ProductImageUploadResponse;
+import com.akgeneralstore.dto.response.ProductPageResponse;
 import com.akgeneralstore.dto.response.ProductResponse;
 import com.akgeneralstore.service.ProductService;
 import jakarta.validation.Valid;
@@ -24,6 +25,14 @@ public class ProductController {
     @GetMapping("/api/products")
     public ApiResponse<List<ProductResponse>> getProducts(@RequestParam(required = false) String search) {
         return new ApiResponse<>(true, "Products fetched", productService.getAllProducts(search));
+    }
+
+    @GetMapping("/api/products/page")
+    public ApiResponse<ProductPageResponse> getProductPage(
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "8") int size
+    ) {
+        return new ApiResponse<>(true, "Product page fetched", productService.getBalancedProductPage(page, size));
     }
 
     @GetMapping("/api/products/{id}")
