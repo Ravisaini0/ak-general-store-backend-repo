@@ -29,16 +29,19 @@ import java.util.Objects;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 @Service
 public class ProductServiceImpl implements ProductService {
     private static final Map<String, List<String>> SEARCH_ALIASES = createSearchAliases();
+    private static final long PUBLIC_PRODUCT_PAGE_CACHE_TTL_MS = 60_000L;
 
     private final ProductRepository productRepository;
     private final CategoryRepository categoryRepository;
     private final ObjectMapper objectMapper;
     private final AssetStorageService assetStorageService;
+    private final Map<String, CachedProductPage> productPageCache = new ConcurrentHashMap<>();
 
     public ProductServiceImpl(
             ProductRepository productRepository,
@@ -82,6 +85,13 @@ public class ProductServiceImpl implements ProductService {
     @Override
     public ProductPageResponse getBalancedProductPage(int page, int size) {
         int safeSize = Math.max(1, Math.min(size, 30));
+        String cacheKey = Math.max(1, page) + ":" + safeSize;
+        CachedProductPage cachedProductPage = productPageCache.get(cacheKey);
+        long now = System.currentTimeMillis();
+        if (cachedProductPage != null && now - cachedProductPage.savedAt() < PUBLIC_PRODUCT_PAGE_CACHE_TTL_MS) {
+            return cachedProductPage.response();
+        }
+
         List<Long> categoryIds = categoryRepository.findAll().stream()
                 .map(com.akgeneralstore.entity.Category::getId)
                 .filter(Objects::nonNull)
@@ -104,13 +114,15 @@ public class ProductServiceImpl implements ProductService {
             fillProductPage(pageProducts, safeSize);
         }
 
-        return ProductPageResponse.builder()
+        ProductPageResponse response = ProductPageResponse.builder()
                 .products(pageProducts.stream().map(this::mapProduct).toList())
                 .page(safePage)
                 .size(safeSize)
                 .totalPages(totalPages)
                 .totalItems(totalItems)
                 .build();
+        productPageCache.put(cacheKey, new CachedProductPage(response, now));
+        return response;
     }
 
     @Override
@@ -226,7 +238,9 @@ public class ProductServiceImpl implements ProductService {
     @Override
     public ProductResponse createProduct(ProductRequest request) {
         Product product = toProduct(new Product(), request);
-        return mapProduct(productRepository.save(product));
+        ProductResponse response = mapProduct(productRepository.save(product));
+        clearPublicProductPageCache();
+        return response;
     }
 
     @Override
@@ -251,6 +265,7 @@ public class ProductServiceImpl implements ProductService {
                 boolean isNewProduct = product.getId() == null;
                 Product savedProduct = productRepository.save(toProduct(product, request));
                 importedProducts.add(mapProduct(savedProduct));
+                clearPublicProductPageCache();
 
                 if (isNewProduct) {
                     createdCount++;
@@ -276,7 +291,9 @@ public class ProductServiceImpl implements ProductService {
     public ProductResponse updateProduct(Long id, ProductRequest request) {
         Product product = productRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Product not found"));
-        return mapProduct(productRepository.save(toProduct(product, request)));
+        ProductResponse response = mapProduct(productRepository.save(toProduct(product, request)));
+        clearPublicProductPageCache();
+        return response;
     }
 
     @Override
@@ -285,6 +302,7 @@ public class ProductServiceImpl implements ProductService {
             throw new ResourceNotFoundException("Product not found");
         }
         productRepository.deleteById(id);
+        clearPublicProductPageCache();
     }
 
     @Override
@@ -332,12 +350,6 @@ public class ProductServiceImpl implements ProductService {
                 : (primaryImageUrl == null ? "" : primaryImageUrl.trim());
         List<Long> categoryIds = getProductCategoryIds(product);
 
-        if (!Objects.equals(product.getImageUrl(), resolvedPrimaryImage) || !rawImageUrls.equals(imageUrls)) {
-            product.setImageUrl(resolvedPrimaryImage);
-            product.setImageGallery(writeImageGallery(imageUrls));
-            productRepository.save(product);
-        }
-
         return ProductResponse.builder()
                 .id(product.getId())
                 .name(product.getName())
@@ -352,6 +364,13 @@ public class ProductServiceImpl implements ProductService {
                 .categoryId(categoryIds.isEmpty() ? product.getCategoryId() : categoryIds.get(0))
                 .categoryIds(categoryIds)
                 .build();
+    }
+
+    private void clearPublicProductPageCache() {
+        productPageCache.clear();
+    }
+
+    private record CachedProductPage(ProductPageResponse response, long savedAt) {
     }
 
     private int scoreProduct(Product product, String normalizedSearch, List<String> tokens) {
