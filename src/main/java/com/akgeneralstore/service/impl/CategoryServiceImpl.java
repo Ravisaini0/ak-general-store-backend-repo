@@ -17,8 +17,12 @@ import java.util.Locale;
 
 @Service
 public class CategoryServiceImpl implements CategoryService {
+    private static final long PUBLIC_CATEGORY_CACHE_TTL_MS = 60_000L;
+
     private final CategoryRepository categoryRepository;
     private final AssetStorageService assetStorageService;
+    private volatile List<Category> cachedPublicCategories;
+    private volatile long cachedPublicCategoriesAt;
 
     public CategoryServiceImpl(
             CategoryRepository categoryRepository,
@@ -30,7 +34,23 @@ public class CategoryServiceImpl implements CategoryService {
 
     @Override
     public List<Category> getAllCategories() {
-        return categoryRepository.findAll().stream().map(this::normalizeCategoryImage).toList();
+        List<Category> cached = cachedPublicCategories;
+        long now = System.currentTimeMillis();
+        if (cached != null && now - cachedPublicCategoriesAt < PUBLIC_CATEGORY_CACHE_TTL_MS) {
+            return cached;
+        }
+
+        synchronized (this) {
+            cached = cachedPublicCategories;
+            now = System.currentTimeMillis();
+            if (cached != null && now - cachedPublicCategoriesAt < PUBLIC_CATEGORY_CACHE_TTL_MS) {
+                return cached;
+            }
+
+            cachedPublicCategories = categoryRepository.findAll().stream().map(this::normalizeCategoryImage).toList();
+            cachedPublicCategoriesAt = now;
+            return cachedPublicCategories;
+        }
     }
 
     @Override
@@ -39,7 +59,9 @@ public class CategoryServiceImpl implements CategoryService {
             category.setSlug(buildSlug(category.getName()));
         }
         category.setImageUrl(assetStorageService.normalizeAssetUrl(category.getImageUrl(), "category"));
-        return categoryRepository.save(category);
+        Category savedCategory = categoryRepository.save(category);
+        clearPublicCategoryCache();
+        return savedCategory;
     }
 
     @Override
@@ -82,6 +104,7 @@ public class CategoryServiceImpl implements CategoryService {
             }
         }
 
+        clearPublicCategoryCache();
         return CategoryBulkImportResponse.builder()
                 .totalRows(categories.size())
                 .createdCount(createdCount)
@@ -104,7 +127,9 @@ public class CategoryServiceImpl implements CategoryService {
         if (previousImageUrl != null && !previousImageUrl.equals(existing.getImageUrl())) {
             assetStorageService.deleteManagedAsset(previousImageUrl);
         }
-        return categoryRepository.save(existing);
+        Category savedCategory = categoryRepository.save(existing);
+        clearPublicCategoryCache();
+        return savedCategory;
     }
 
     @Override
@@ -120,6 +145,7 @@ public class CategoryServiceImpl implements CategoryService {
         }
         categoryRepository.deleteById(id);
         assetStorageService.deleteManagedAsset(category.getImageUrl());
+        clearPublicCategoryCache();
     }
 
     private Category normalizeCategoryImage(Category category) {
@@ -150,5 +176,10 @@ public class CategoryServiceImpl implements CategoryService {
                         .toLowerCase(Locale.ROOT)
                         .replaceAll("[^a-z0-9]+", "-")
                         .replaceAll("(^-|-$)", "");
+    }
+
+    private void clearPublicCategoryCache() {
+        cachedPublicCategories = null;
+        cachedPublicCategoriesAt = 0L;
     }
 }

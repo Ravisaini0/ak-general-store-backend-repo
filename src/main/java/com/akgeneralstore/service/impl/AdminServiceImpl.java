@@ -34,10 +34,13 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.Map;
 import java.util.List;
+import java.util.stream.Collectors;
 
 @Service
 public class AdminServiceImpl implements AdminService {
+    private static final long PUBLIC_SETTINGS_CACHE_TTL_MS = 60_000L;
 
     private final OrderRepository orderRepository;
     private final ProductRepository productRepository;
@@ -49,6 +52,8 @@ public class AdminServiceImpl implements AdminService {
     private final StoreSettingRepository storeSettingRepository;
     private final OrderService orderService;
     private final PasswordEncoder passwordEncoder;
+    private volatile StoreSettingsResponse cachedPublicSettings;
+    private volatile long cachedPublicSettingsAt;
 
     public AdminServiceImpl(
             OrderRepository orderRepository,
@@ -272,20 +277,43 @@ public class AdminServiceImpl implements AdminService {
 
     @Override
     public StoreSettingsResponse getSettings() {
-        return StoreSettingsResponse.builder()
-                .storeName(getSetting("store_name", "AK General Store"))
-                .supportPhone(getSetting("support_phone", "9483989109"))
-                .supportEmail(getSetting("support_email", "support@akgeneralstore.com"))
-                .freeDeliveryThreshold(getSetting("free_delivery_threshold", "499"))
-                .deliveryCharge(getSetting("delivery_charge", "40"))
-                .enabledPayments(getSetting("enabled_payments", "COD,UPI,RAZORPAY"))
-                .serviceRadiusKm(getSetting("service_radius_km", "25"))
-                .storeLocations(getSetting("store_locations", "AK General Store Main|28.0162|74.9642|25|https://maps.app.goo.gl/YY4f8NfB9sTfRQrH7"))
-                .upiMerchantName(getSetting("upi_merchant_name", "AK General Store"))
-                .upiId(getSetting("upi_id", "support@akgeneralstore"))
-                .deliveryBasePayoutAmount(getSetting("delivery_base_payout_amount", "20"))
-                .deliveryAdditionalPayoutAmount(getSetting("delivery_additional_payout_amount", "10"))
-                .build();
+        StoreSettingsResponse cached = cachedPublicSettings;
+        long now = System.currentTimeMillis();
+        if (cached != null && now - cachedPublicSettingsAt < PUBLIC_SETTINGS_CACHE_TTL_MS) {
+            return cached;
+        }
+
+        synchronized (this) {
+            cached = cachedPublicSettings;
+            now = System.currentTimeMillis();
+            if (cached != null && now - cachedPublicSettingsAt < PUBLIC_SETTINGS_CACHE_TTL_MS) {
+                return cached;
+            }
+
+            Map<String, String> settings = storeSettingRepository.findAll().stream()
+                    .collect(Collectors.toMap(
+                            StoreSetting::getSettingKey,
+                            item -> item.getSettingValue() == null ? "" : item.getSettingValue(),
+                            (left, right) -> right
+                    ));
+
+            cachedPublicSettings = StoreSettingsResponse.builder()
+                    .storeName(getSetting(settings, "store_name", "AK General Store"))
+                    .supportPhone(getSetting(settings, "support_phone", "9483989109"))
+                    .supportEmail(getSetting(settings, "support_email", "support@akgeneralstore.com"))
+                    .freeDeliveryThreshold(getSetting(settings, "free_delivery_threshold", "499"))
+                    .deliveryCharge(getSetting(settings, "delivery_charge", "40"))
+                    .enabledPayments(getSetting(settings, "enabled_payments", "COD,UPI,RAZORPAY"))
+                    .serviceRadiusKm(getSetting(settings, "service_radius_km", "25"))
+                    .storeLocations(getSetting(settings, "store_locations", "AK General Store Main|28.0162|74.9642|25|https://maps.app.goo.gl/YY4f8NfB9sTfRQrH7"))
+                    .upiMerchantName(getSetting(settings, "upi_merchant_name", "AK General Store"))
+                    .upiId(getSetting(settings, "upi_id", "support@akgeneralstore"))
+                    .deliveryBasePayoutAmount(getSetting(settings, "delivery_base_payout_amount", "20"))
+                    .deliveryAdditionalPayoutAmount(getSetting(settings, "delivery_additional_payout_amount", "10"))
+                    .build();
+            cachedPublicSettingsAt = now;
+            return cachedPublicSettings;
+        }
     }
 
     @Override
@@ -302,6 +330,7 @@ public class AdminServiceImpl implements AdminService {
         saveSetting("upi_id", request.getUpiId());
         saveSetting("delivery_base_payout_amount", request.getDeliveryBasePayoutAmount());
         saveSetting("delivery_additional_payout_amount", request.getDeliveryAdditionalPayoutAmount());
+        clearPublicSettingsCache();
         return getSettings();
     }
 
@@ -334,10 +363,9 @@ public class AdminServiceImpl implements AdminService {
                 .build();
     }
 
-    private String getSetting(String key, String fallback) {
-        return storeSettingRepository.findBySettingKey(key)
-                .map(StoreSetting::getSettingValue)
-                .orElse(fallback);
+    private String getSetting(Map<String, String> settings, String key, String fallback) {
+        String value = settings.get(key);
+        return value == null || value.isBlank() ? fallback : value;
     }
 
     private void saveSetting(String key, String value) {
@@ -345,6 +373,11 @@ public class AdminServiceImpl implements AdminService {
         setting.setSettingKey(key);
         setting.setSettingValue(value == null ? "" : value);
         storeSettingRepository.save(setting);
+    }
+
+    private void clearPublicSettingsCache() {
+        cachedPublicSettings = null;
+        cachedPublicSettingsAt = 0L;
     }
 
     private UserSummaryResponse mapDeliveryUser(User user) {
