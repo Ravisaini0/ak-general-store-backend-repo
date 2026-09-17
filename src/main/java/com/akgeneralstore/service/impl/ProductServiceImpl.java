@@ -174,28 +174,15 @@ public class ProductServiceImpl implements ProductService {
     }
 
     private List<Product> getFirstBalancedProducts(List<Long> categoryIds, int safeSize) {
-        List<Product> pageProducts = new ArrayList<>();
-        Set<Long> usedProductIds = new HashSet<>();
-        Pageable firstFewById = PageRequest.of(0, Math.max(3, safeSize), Sort.by("id").ascending());
-
-        for (Long categoryId : categoryIds) {
-            if (pageProducts.size() >= safeSize) {
-                break;
-            }
-
-            Product product = productRepository.findByCategories_Id(categoryId, firstFewById).stream()
-                    .filter(item -> item.getId() != null && !usedProductIds.contains(item.getId()))
-                    .findFirst()
-                    .orElseGet(() -> productRepository.findByCategoryId(categoryId, firstFewById).stream()
-                            .filter(item -> item.getId() != null && !usedProductIds.contains(item.getId()))
-                            .findFirst()
-                            .orElse(null));
-
-            if (product != null) {
-                pageProducts.add(product);
-                usedProductIds.add(product.getId());
-            }
-        }
+        int candidatePoolSize = Math.max(safeSize * 6, 60);
+        Pageable firstProductsById = PageRequest.of(0, candidatePoolSize, Sort.by("id").ascending());
+        List<Product> balancedCandidates = buildBalancedProductOrder(
+                productRepository.findAll(firstProductsById).getContent(),
+                categoryIds
+        );
+        List<Product> pageProducts = balancedCandidates.stream()
+                .limit(safeSize)
+                .collect(Collectors.toCollection(ArrayList::new));
 
         if (pageProducts.size() < safeSize) {
             fillProductPage(pageProducts, safeSize);
