@@ -98,7 +98,8 @@ public class OrderServiceImpl implements OrderService {
             BigDecimal lineTotal = product.getPrice().multiply(BigDecimal.valueOf(itemRequest.getQuantity()));
             subtotal = subtotal.add(lineTotal);
         }
-        BigDecimal deliveryFee = request.getDeliveryFee() == null ? BigDecimal.ZERO : request.getDeliveryFee().max(BigDecimal.ZERO);
+        // Never trust a delivery fee sent by the browser. Store settings are the only billing source.
+        BigDecimal deliveryFee = calculateDeliveryFee(subtotal);
         BigDecimal discountAmount = resolveDiscountAmount(request, subtotal);
         BigDecimal finalTotal = subtotal.add(deliveryFee).subtract(discountAmount).max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
 
@@ -270,6 +271,15 @@ public class OrderServiceImpl implements OrderService {
         return safeDiscount;
     }
 
+    private BigDecimal calculateDeliveryFee(BigDecimal subtotal) {
+        BigDecimal freeDeliveryThreshold = readDecimalSetting("free_delivery_threshold", BigDecimal.valueOf(499));
+        if (subtotal.compareTo(freeDeliveryThreshold) >= 0) {
+            return BigDecimal.ZERO;
+        }
+
+        return readDecimalSetting("delivery_charge", BigDecimal.valueOf(40)).max(BigDecimal.ZERO);
+    }
+
     private DeliveryCoverageResult validateCoverage(OrderRequest request) {
         Address selectedAddress = null;
         if (request.getAddressId() != null) {
@@ -399,6 +409,14 @@ public class OrderServiceImpl implements OrderService {
     private double readDoubleSetting(String key, double fallback) {
         try {
             return Double.parseDouble(getSetting(key, String.valueOf(fallback)));
+        } catch (NumberFormatException exception) {
+            return fallback;
+        }
+    }
+
+    private BigDecimal readDecimalSetting(String key, BigDecimal fallback) {
+        try {
+            return new BigDecimal(getSetting(key, fallback.toPlainString()));
         } catch (NumberFormatException exception) {
             return fallback;
         }
